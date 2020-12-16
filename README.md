@@ -63,6 +63,11 @@ A ring construction strategy is preferred if a target compounds has complex ring
 A synthetic reaction with few by-products is generally preferred in terms of yield.
 
 ## Contact
-Shoichi Ishida: ishida.shouichi.57a@st.kyoto-u.ac.jp
+
+- Shoichi Ishida: ishida.shouichi.57a@st.kyoto-u.ac.jp 
+- Ryosuke Kojima: kojima.ryosuke.8e@kyoto-u.ac.jp 
 
 ## Reference
+
+This application is developed as part of a [kGCN](https://github.com/clinfo/kGCN) project. 
+

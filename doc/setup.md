@@ -27,7 +27,7 @@ git clone https://github.com/pyenv/pyenv-virtualenv.git $(pyenv root)/plugins/py
 echo 'eval "$(pyenv virtualenv-init -)"' >> $HOME/.bash_profile
 source $HOME/.bash_profile
 ```
-### Create RealRetro implementation environment in pyenv
+### Create ReTReK implementation environment in pyenv
 * Install miniconda3.
 ```bash
 pyenv install miniconda3-4.3.27
@@ -41,8 +41,8 @@ pyenv global miniconda3-4.2.12/envs/home
 # If you create the environment using environment.yml, you don't need to install the dependency libraries.
 conda env create -f environment.yml
 # (For NOT Ubuntu18.04 users)
-conda create -n realretro python=3.7
-pyenv shell miniconda3-4.2.12/envs/realretro
+conda create -n retrek python=3.7
+pyenv shell miniconda3-4.2.12/envs/retrek
 ```
 
 * Install the dependency libraries.
