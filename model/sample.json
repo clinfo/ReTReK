@@ -1,0 +1,7 @@
+{
+    "model.py": "model.model:GCN",
+    "normalize_adj_flag": true,
+    "with_feature": true,
+    "batch_size": 1,
+    "with_node_embedding": false
+}

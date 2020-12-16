@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?><StandardizerConfiguration Version="0.1">
+  <Actions>
+    <RemoveExplicitH Bridgehead="false" Charged="false" Hconnected="false" ID="Remove Explicit Hydrogens" Isotopic="false" Lonely="false" Mapped="false" Metalconnected="true" Polymerendgroup="false" Radical="false" Sgroup="false" Sgroupend="false" Valenceerror="false" Wedged="false"/>
+    <Dearomatize ID="Dearomatize"/>
+    <Aromatize ID="Aromatize" Type="general"/>
+    <RemoveFragment ID="Remove Fragment" Measure="heavyAtomCount" Method="keepLargest"/>
+  </Actions>
+</StandardizerConfiguration>

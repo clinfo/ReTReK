@@ -1,0 +1,116 @@
+@charset "UTF-8";
+/* -------------
+ * base
+ * -------------*/
+html {
+    font-size: 62.5%;
+}
+body {
+    color: #333;
+    font-size: 1.2rem;
+    font-family: "Hiragino Kaku Gothic ProN", Meiryo, Sans-Serif;
+}
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* -------------
+ * parts
+ * -------------*/
+.clearfix::after {
+    content: '';
+    display: block;
+    clear: both;
+}
+.bottom {
+    border-bottom: dotted 1px;
+}
+.type {
+    display: block;
+    font-size: 2.5rem;
+    text-align: center;
+    padding: 10px 0 10px;
+}
+.number {
+    display: block;
+    font-size: 1.2rem;
+    padding: 10px 0 0 10px;
+}
+/* -------------
+ * header
+ * ------------- */
+.header {
+    width: 100%;
+    padding: 20px 0 6px;
+    background: url("../images/bg-header.gif") repeat-x;
+}
+.route_name {
+    display: block;
+    font-size: 3.5rem;
+    text-align: center;
+}
+/* -------------
+ * wrapper
+ * ------------- */
+.wrapper {
+    width: 95%;
+    margin: 30px auto 40px;
+}
+/* -------------
+ * state
+ *------------- */
+.state {
+    display: block;
+    float: left;
+    width: 75%;
+}
+.mol {
+    border-top: dotted 1px;
+    color: #888;
+    margin: auto;
+}
+.state img {
+    display: block;
+    margin: auto;
+}
+/* -------------
+ * reaction
+ * -------------*/
+.reaction {
+    float: right;
+    width: 24%;
+    padding-top: 100px;
+}
+.template {
+    border-top: dotted 1px;
+    color: #888;
+    padding: 60px 0;
+}
+.reaction img {
+    display: block;
+    margin: auto;
+}
+/* -------------
+ * footer
+ * -------------*/
+.footer {
+    width: 100%;
+    padding: 20px 0 6px;
+    background: url("../images/bg-header.gif") repeat-x;
+}
+/* -------------
+ * check
+.header, .reaction, .state, .footer, .mol, .template {
+    border: 1px solid #aaa;
+    background-color: #ccc;
+}
+.mol, .template {
+} * -------------*/
+/*
+.header, .footer {
+    height: 100px;
+}
+.state, .reaction {
+    height: 500px;
+}
+*/

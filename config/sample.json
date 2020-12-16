@@ -1,0 +1,15 @@
+{
+  "max_atom_num": 50,
+  "search_count": 100,
+  "rollout_depth": 5,
+  "expansion_model": "model/variables",
+  "expansion_rules": "data/reaction_template_uspto_filtered.sma",
+  "rollout_model": "model/variables",
+  "rollout_rules": "data/reaction_template_uspto_filtered.sma",
+  "descriptor": "GCN",
+  "gcn_expansion_config": "model/sample.json",
+  "gcn_rollout_config": "model/sample.json",
+  "starting_material": "data/starting_materials.smi",
+  "save_result_dir": "result",
+  "target": "data/sample.mol"
+}
