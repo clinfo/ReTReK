@@ -42,7 +42,7 @@ python run.py --config config/sample.json --target data/sample.mol --knowledge c
 ```
 If you want to try your own molecule, prepare the molecule as MDL MOLfile format and replace `data/sample.mol` with the prepared file. 
 
-# Optional arguments
+## Optional arguments
 
 - `--sel_const`: constant value for selection (default value is set to 3). 
 - `--expansion_num`: number of reaction templates used in the expansion step (default value is set to 50). 
