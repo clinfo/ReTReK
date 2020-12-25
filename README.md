@@ -68,6 +68,16 @@ A synthetic reaction with few by-products is generally preferred in terms of yie
 - Ryosuke Kojima: kojima.ryosuke.8e@kyoto-u.ac.jp 
 
 ## Reference
-
+```
+@article{Ishida2020,
+  doi = {10.26434/chemrxiv.13386092.v1},
+  url = {https://doi.org/10.26434/chemrxiv.13386092.v1},
+  year = {2020},
+  month = dec,
+  journal = {ChemRxiv},
+  author = {Shoichi Ishida and Kei Terayama and Ryosuke Kojima and Kiyosei Takasu and Yasushi Okuno},
+  title = {{AI}-Driven Synthetic Route Design with Retrosynthesis Knowledge}
+}
+```
 This application is developed as part of a [kGCN](https://github.com/clinfo/kGCN) project. 
 
