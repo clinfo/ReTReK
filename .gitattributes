@@ -1,0 +1,1 @@
+data/starting_materials_zinc.smi filter=lfs diff=lfs merge=lfs -text
