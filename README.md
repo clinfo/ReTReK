@@ -1,6 +1,7 @@
 # ReTReK: ReTrosynthesis planning application using Retrosynthesis Knowledge
 This package provides a data-driven computer-aided synthesis planning tool using retrosynthesis knowledge. 
 In this package, the model of ReTReK was trained with US Patent dataset instead of Reaxys reaction dataset. 
+Hence, please note that we cannot guarantee that the model gives the same synthetic routes in the manuscript. 
 
 <div align="center">
   <img src="./images/ReTReK_summary.jpg">
@@ -41,6 +42,17 @@ python run.py --config config/sample.json --target data/sample.mol --knowledge c
 python run.py --config config/sample.json --target data/sample.mol --knowledge cdscore --knowledge_weights 2.0 0.0 0.0 0.0
 ```
 If you want to try your own molecule, prepare the molecule as MDL MOLfile format and replace `data/sample.mol` with the prepared file. 
+
+The target molecules used in the manuscript are stored in `data/evaluation_compounds`. 
+If you want to try the molecules in the directory, run the command as follows:
+
+NOTE: You need to download additional files using [git-lfs](https://git-lfs.github.com/) to run the below command. 
+At first, run `git lfs install && git lfs pull` to download `data/starting_materials_zinc.smi`.
+```bash
+python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/MtbTMPK_inhibitor.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
+
+python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/α7_nicotinic_acetylcholine_receptor_silent_agonist.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
+```
 
 ## Optional arguments
 
