@@ -1,0 +1,50 @@
+{
+    "template_extraction_config":
+    {
+        "input_file_path": "/nasa/datasets/retro_transfer/uspto_raw/1976_Sep2016_USPTOgrants_smiles.rsmi",
+        "input_file_extension": ".rsmi",
+        "input_file_separator": "\t",
+        "id_column": "",
+        "rxn_smiles_column": "ReactionSmiles",
+
+        "output_folder_path": "/nasa/datasets/riken_retrosynthesis/project_deliverables/task_3_4/",
+        "output_file_name": "reaction_templates_uspto_filtered_elix",
+        "output_file_extension": ".sma",
+        "output_file_separator": "\n",
+        "cleaned_smiles_column": "clean_rxn_smiles",
+        "mapped_smiles_column": "mapped_rxn_smiles",
+        "rxn_template_smarts_column": "rxn_template_smarts",
+
+        "salts_file_path": "reimplemented_libraries/utils/default_data/chem_axon_salts.txt",
+
+        "atom_mapping_timeout": 10000,
+        "handle_existing_mapping": "discard",
+
+        "extract_template_timeout": 10000,
+        "extract_template_threshold": 1000,
+        "template_occurrence_threshold": 50,
+
+        "use_multiprocessing": true
+    },
+
+    "data_pre_processing_config":
+    {
+        "input_file_path": "/nasa/datasets/riken_retrosynthesis/project_deliverables/task_3_5/data.csv",
+        "input_file_extension": ".csv",
+        "input_file_separator": ",",
+        "id_column": "zinc_id",
+        "smiles_column": "smiles",
+
+        "output_folder_path": "/nasa/datasets/riken_retrosynthesis/project_deliverables/task_3_5/gcpn/",
+        "output_file_name": "chemts_chembl_clean_reward_hashimoto_filter_processed",
+        "output_file_extension": ".csv",
+        "output_file_separator": ",",
+        "processed_smiles_column": "processed_smiles",
+        "sa_score_column": "sa_score",
+
+        "salts_file_path": "reimplemented_libraries/utils/data/all_salts.txt",
+        "unwanted_elements_file_path": "reimplemented_libraries/utils/default_data/all_unwanted_elements.sma",
+        
+        "use_multiprocessing": true
+    }
+}

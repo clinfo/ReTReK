@@ -1,14 +1,15 @@
 import copy
 import math
 import os
+import numpy as np
 from pathlib import Path
 import random
 from statistics import mean
-
 from rdkit import Chem
 
 from utils import MoleculeUtils, ReactionUtils, SearchUtils, get_node_info
 from visualization import create_images, create_html_file
+from reimplemented_libraries import CxnUtils
 
 
 class State:
@@ -20,7 +21,7 @@ class State:
         rxn_applied_mol_idx (int): The index of a reaction-applied molecule in mols
     """
     def __init__(self, mols, rxn_rule=None, mol_conditions=None, rxn_applied_mol_idx=None, stscore=0,
-                 cdscore=0, rdscore=0, asscore=0):
+                 cdscore=0, rdscore=0, asscore=0, intermediate_score=0, template_score=0, knowledge="all", knowledge_weights=[1,1,1,1,1,1]):
         """ A constructor of State
         Args:
             mols (list[Mol Object]): RDKit Mol Object
@@ -36,7 +37,22 @@ class State:
         self.cdscore = cdscore
         self.rdscore = rdscore
         self.asscore = asscore
-
+        self.intermediate_score = intermediate_score
+        self.template_score = template_score
+        knowledge_score = []
+        if "cdscore" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[0] * self.cdscore)
+        if "rdscore" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[1] * self.rdscore)
+        if "asscore" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[2] * self.asscore)
+        if "stscore" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[3] * self.stscore)
+        if "intermediate_score" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[4] * self.intermediate_score)
+        if "template_score" in knowledge or "all" in knowledge:
+            knowledge_score.append(knowledge_weights[5] * self.template_score)
+        self.knowledge_score = np.mean(knowledge_score) if knowledge_score else 0
 
 class Node:
     """ Node
@@ -67,10 +83,41 @@ class Node:
         self.depth = 0 if depth is None else depth
         self.rxn_probs = 0.
         self.total_scores = 0.
-        self.visits = 0
+        self.visits = 1
         self.max_length = 10
 
-    def select_node(self, constant, logger, knowledge, ws):
+    def get_best_leaf(self, logger):
+        """
+        Method to find best leaf of node based on scores/visits solely.
+        Args:
+            logger (logging.Logger): Logger
+        Returns: The leaf Node with max total_scores/visits
+        """
+        tmp_node = self
+        while tmp_node.has_child:
+            tmp_node = tmp_node.select_node(0, logger)
+        return tmp_node
+
+
+    def ucb(self, constant):
+        """
+        Computes UCB for all child nodes.
+        Args:
+            constant (float): constant to use for UCB computation
+        Returns: ucb for all child nodes
+        """
+        parent_visits = self.visits
+        child_visits = np.array([node.visits for node in self.child_nodes])
+        probs = np.array([node.node_probs[0] for node in self.child_nodes])
+        knowledge_scores = np.array([node.state.knowledge_score for node in self.child_nodes])
+        total_scores = np.array([node.total_scores for node in self.child_nodes])
+        exploit = total_scores / child_visits
+        explore = probs * math.sqrt(parent_visits) / (1 + child_visits)
+        ucb = exploit + constant * explore + knowledge_scores
+        return ucb
+
+
+    def select_node(self, constant, logger):
         """ Selection implementation of MCTS
         Define Q(st, a) to total_scores, N(st, a) to child_visits, N(st-1, a) to parent_visits and P(st, a) to p.
         p is a prior probability received from the expansion.
@@ -79,32 +126,14 @@ class Node:
             constant (int):
             logger (logging.Logger): Logger
             knowledge (set(str)):
-            ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore]
+            ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore, intermediate_score, template_score]
         Returns: The Node which has max ucb score
         """
+        ucb = self.ucb(constant)
+        max_index = random.choice(np.where(ucb==ucb.max())[0])
         node_num = len(self.child_nodes)
-        ucb_list = [.0] * node_num
-
-        for i in range(node_num):
-            total_scores = self.child_nodes[i].total_scores
-            child_visits = self.child_nodes[i].visits
-            parent_visits = self.visits
-            p = self.child_nodes[i].node_probs[0]
-            knowledge_score = []
-            if "cdscore" in knowledge or "all" in knowledge:
-                knowledge_score.append(ws[0] * self.child_nodes[i].state.cdscore)
-            if "rdscore" in knowledge or "all" in knowledge:
-                knowledge_score.append(ws[1] * self.child_nodes[i].state.rdscore)
-            if "asscore" in knowledge or "all" in knowledge:
-                knowledge_score.append(ws[2] * self.child_nodes[i].state.asscore)
-            if "stscore" in knowledge or "all" in knowledge:
-                knowledge_score.append(ws[3] * self.child_nodes[i].state.stscore)
-            ucb_list[i] = (total_scores / child_visits +
-                           constant * p * math.sqrt(parent_visits) / (1 + child_visits))
-            ucb_list[i] += mean(knowledge_score) if knowledge_score else 0
-        max_index = ucb_list.index(max(ucb_list))
         logger.debug(f"\n################ SELECTION ################\n"
-                     f"ucb_list:\n {ucb_list}\n"
+                     f"ucb_list:\n {ucb}\n"
                      f"visit: \n{[self.child_nodes[i].visits for i in range(node_num)]}\n"
                      f"child total scores: \n{[self.child_nodes[i].total_scores for i in range(node_num)]}\n"
                      f"parent visits: {self.visits}\n"
@@ -112,17 +141,15 @@ class Node:
                      f"############################################\n")
         return self.child_nodes[max_index]
 
-    def add_node(self, st, new_node_prob, parent_node, depth):
-        """ Add Node to parent Node.
+    def add_node(self, st, new_node_prob):
+        """ Add Node as child node to self.
         Args
             st (State):
             new_node_prob (float):
-            parent_node (Node):
-            depth (int):
         Returns:
             The child Node which was added to the parent Node
         """
-        new_node = Node(st, parent_node=parent_node, depth=depth)
+        new_node = Node(st, parent_node=self, depth=self.depth+1)
         new_node.node_probs.append(new_node_prob)
         for p in self.node_probs:
             new_node.node_probs.append(copy.deepcopy(p))
@@ -131,7 +158,7 @@ class Node:
             self.has_child = True
         return new_node
 
-    def rollout(self, rxn_rules, rollout_model, start_materials, config, max_atom_num, gateway=None):
+    def rollout(self, reaction_util, rxn_rules, rollout_model, start_materials, config, max_atom_num, gateway=None):
         """ Rollout implementation of MCTS
         Args:
             rxn_rules (list[Chemical Reaction]):
@@ -163,15 +190,18 @@ class Node:
                 if rand_mol.GetNumAtoms() > max_atom_num:
                     return 0.
                 # Get top 10 reaction candidate from rand_mol
-                rand_pred_rxns, self.rxn_probs = ReactionUtils.predict_reactions(rxn_rules, rollout_model, rand_mol,
+                rand_pred_rxns, self.rxn_probs = reaction_util.predict_reactions(rxn_rules, rollout_model, rand_mol,
                                                                                  'rollout', config, top_number=10)
                 # Random pick a reaction from the reaction candidate
                 rand_rxn_cand = random.choice(rand_pred_rxns)
                 #
-                divided_mols_list = ReactionUtils.react_product_to_reactants(rand_mol, rand_rxn_cand, gateway=gateway)
+                divided_mols_list = reaction_util.react_product_to_reactants(rand_mol, rand_rxn_cand, gateway=gateway)
                 if not divided_mols_list:
                     continue
-                MoleculeUtils.update_mol_condition(mol_cond, mols, divided_mols_list[0], start_materials, unsolved_idx)
+                if isinstance(gateway, CxnUtils):
+                    MoleculeUtils.update_mol_condition(mol_cond, mols, random.choice(divided_mols_list), start_materials, unsolved_idx)
+                else:
+                    MoleculeUtils.update_mol_condition(mol_cond, mols, divided_mols_list[0], start_materials, unsolved_idx)
                 if SearchUtils.is_proved(mol_cond):
                     break
             return mol_cond.count(1) / len(mol_cond)
@@ -189,15 +219,6 @@ class Node:
         weight = max(.0, (self.max_length - length_factor) / self.max_length)
         q_score = score * weight
         self.total_scores += q_score
-
-    def select_highest_score_node(self):
-        """
-        Returns: The Node which has the highest score of "total_scores / visits".
-        """
-        node_num = len(self.child_nodes)
-        score_list = [self.child_nodes[i].total_scores / self.child_nodes[i].visits for i in range(node_num)]
-        max_index = score_list.index(max(score_list))
-        return self.child_nodes[max_index]
 
 
 def back_propagation(node, score):
@@ -217,7 +238,7 @@ def save_route(nodes, save_dir, is_proven, ws):
         nodes (list[Node]): List of reaction route nodes.
         save_dir (str):
         is_proven (Boolean): Reaction route search has done or not.
-        ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore]
+        ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore, intermediate_score, template_score]
     """
     is_proven = "proven" if is_proven else "not_proven"
     Path(os.path.join(save_dir, is_proven)).touch()
@@ -240,8 +261,9 @@ def save_route(nodes, save_dir, is_proven, ws):
                  "score\t"
                  "RDScore\t"
                  "CDScore\t"
-                 "STScore\t"
-                 "ASScore"]
+                 "ASScore\t"
+                 "IntermediateScore\t"
+                 "TemplateScore"]
     tree_info.extend([get_node_info(node, ws) for node in nodes])
     with open(tree_save_path, 'w') as f:
         f.write("\n".join(tree_info))

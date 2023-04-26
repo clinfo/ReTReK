@@ -1,20 +1,21 @@
-import copy
-from functools import wraps, reduce
+from functools import reduce
 import socket
 import os
 from operator import mul
 import sys
 from statistics import mean
 import time
+import json
 
 import numpy as np
+import torch
 from rdkit.Chem import AllChem, RWMol
 from rdkit import Chem
 from rdkit.Chem.rdChemReactions import ChemicalReaction
 
-from kgcn.data_util import dense_to_sparse
-from kgcn.preprocessing.utils import atom_features
 from model_modules import predict_templates
+from preprocessing_modules import atom_features
+from reimplemented_libraries import CxnUtils
 
 
 class MoleculeUtils:
@@ -32,6 +33,39 @@ class MoleculeUtils:
         return np.asarray([[int(i) for i in list(fp)]])
 
     @staticmethod
+    def generate_count_ecfp(mol, radius=2, bits=2048):
+        """ Create Extended Connectivity Fingerprint with counts
+        Args:
+            mol (Mol Object):
+            radius (int):
+            bits (int):
+        Returns:
+            Numpy array type ECFP with counts
+        """
+        Chem.SanitizeMol(mol)
+        bit_info = {}
+        fgp = np.zeros(bits)
+        AllChem.GetMorganFingerprintAsBitVect(mol, radius, bits, bitInfo=bit_info)
+        for bit_id, active in bit_info.items():
+            fgp[bit_id] = len(active)
+        return fgp
+
+    @staticmethod
+    def generate_reaction_count_ecfp(product, reactants, radius=2, bits=2048, pre_computed_product_fgp=None):
+        """ Create Extended Connectivity Fingerprint with counts of reaction
+        Args:
+            product (Mol Object):
+            reactants (List[Mol Object]):
+            radius (int):
+            bits (int):
+        Returns:
+            Numpy array type ECFP with counts
+        """
+        p_fgp = MoleculeUtils.generate_count_ecfp(product, radius, bits) if pre_computed_product_fgp is None else pre_computed_product_fgp
+        r_fgp = np.sum([MoleculeUtils.generate_count_ecfp(r, radius, bits) for r in reactants], axis=0)
+        return p_fgp - r_fgp
+
+    @staticmethod
     def generate_gcn_descriptor(mol, atom_num_limit, label_dim):
         """ Create GCN descriptor (adj, feat, label)
         Args:
@@ -41,10 +75,6 @@ class MoleculeUtils:
         Returns:
             adj, feature, label
         """
-        # Prepare dummy label information
-        label_data = np.zeros(label_dim)
-        label_mask = np.zeros_like(label_data)
-        label_mask[~np.isnan(label_data)] = 1
         # for index, mol in enumerate(mol):
         Chem.SanitizeMol(mol, sanitizeOps=Chem.SANITIZE_ADJUSTHS)
         # Create a adjacency matrix
@@ -59,13 +89,10 @@ class MoleculeUtils:
         for _ in range(atom_num_limit - len(feature)):
             feature.append(np.zeros(len(feature[0]), dtype=np.int))
 
-        adj = dense_to_sparse(adj)
-        adj[2][:] = atom_num_limit
         obj = {
             "feature": np.asarray([feature]),
-            "adj": np.asarray([adj]),
-            "label": np.asarray([label_data]),
-            "mask_label": np.asarray([label_mask]),
+            "adj": adj,
+            "label_dim": label_dim,
             "max_node_num": atom_num_limit
         }
         return obj
@@ -86,8 +113,12 @@ class MoleculeUtils:
         mol_conditions.pop(idx)
         for divided_mol in divided_mols:
             mols.append(divided_mol)
-            smiles = Chem.MolToSmiles(divided_mol, canonical=True)
-            if SearchUtils.sequential_search(smiles, start_materials):
+            if "inchi" in start_materials:
+                AllChem.SanitizeMol(divided_mol)
+                to_check = Chem.MolToInchiKey(divided_mol)
+            else:
+                to_check = Chem.MolToSmiles(divided_mol, canonical=True)
+            if SearchUtils.sequential_search(to_check, start_materials):
                 mol_conditions.append(1)
             else:
                 mol_conditions.append(0)
@@ -119,24 +150,20 @@ class MoleculeUtils:
 
 
 class ReactionUtils:
-    """
-    Attributes:
-        mol (Mol Object):
-    """
-    mol = None
-    rxn_candidates = []
-    sorted_rxn_prob_list = None
-    sorted_rxn_prob_idxs = None
 
-    def __init__(self, mol):
+    def __init__(self, mol=None):
         """ A constructor of ReactionUtils
         Args:
             mol (Mol Object):
         """
         self.mol = mol
+        self.predict_reaction_cache = {}
+        self.product_to_reactants_cache = {}
+        self.rxn_candidates = []
+        self.sorted_rxn_prob_list = None
+        self.sorted_rxn_prob_idxs = None
 
-    @staticmethod
-    def react_product_to_reactants(product, rxn_rule, gateway=None):
+    def react_product_to_reactants(self, product, rxn_rule, gateway=None):
         """
         Args:
             product (Mol Object):
@@ -146,18 +173,25 @@ class ReactionUtils:
             list(molecule object)
         """
         return_list = []
+        if (product, rxn_rule) in self.product_to_reactants_cache:
+            return self.product_to_reactants_cache[(product, rxn_rule)]
         if gateway:
-            product = Chem.MolToSmiles(product)
             try:
-                reactants_list = gateway.entry_point.reactProductToReactants(product, rxn_rule)
+                product_mol = Chem.MolToSmiles(product)
+                if isinstance(gateway, CxnUtils):
+                    reactants_list = gateway.react_product_to_reactants(product_mol, rxn_rule)
+                else:
+                    reactants_list = gateway.entry_point.reactProductToReactants(product_mol, rxn_rule)
                 for reactants in reactants_list:
                     if reactants is None or None in reactants:
                         continue
                     reactants = [Chem.MolFromSmiles(m) for m in reactants]
                     if reactants and None not in reactants:
                         return_list.append(reactants)
-                return return_list if return_list else None
+                self.product_to_reactants_cache[(product, rxn_rule)] = return_list if return_list else None
+                return self.product_to_reactants_cache[(product, rxn_rule)]
             except:
+                self.product_to_reactants_cache[(product, rxn_rule)] = None
                 return None
         if ChemicalReaction.Validate(rxn_rule)[1] == 1 or rxn_rule.GetNumReactantTemplates() != 1:
             return None
@@ -179,21 +213,28 @@ class ReactionUtils:
             model_name (str):
             config (dict):
         """
-        if config['descriptor'] == 'ECFP':
-            input_mol = MoleculeUtils.generate_ecfp(self.mol)
-            rxn_prob_list = predict_templates(model, input_mol, model_name, config)
-        elif config['descriptor'] == 'GCN':
-            input_mol = None
-            if model_name == 'expansion':
-                input_mol = MoleculeUtils.generate_gcn_descriptor(self.mol, config['max_atom_num'], len(rxn_rules))
-            elif model_name == 'rollout':
-                input_mol = MoleculeUtils.generate_gcn_descriptor(self.mol, config['max_atom_num'], len(rxn_rules))
-            rxn_prob_list = predict_templates(model, input_mol, model_name, config)
+        canonical_smiles = AllChem.MolToSmiles(self.mol, canonical=True)
+        if canonical_smiles in self.predict_reaction_cache:
+            sorted_rxn_prob_list, sorted_rxn_prob_idxs = self.predict_reaction_cache[canonical_smiles]
         else:
-            print("[ERROR] Set 'descriptor' to ECFP or GCN")
-            sys.exit(1)
-        self.sorted_rxn_prob_idxs = np.argsort(-rxn_prob_list)
-        self.sorted_rxn_prob_list = rxn_prob_list[self.sorted_rxn_prob_idxs]
+            if config['descriptor'] == 'ECFP':
+                input_mol = MoleculeUtils.generate_ecfp(self.mol)
+                rxn_prob_list = predict_templates(model, input_mol, model_name, config)
+            elif config['descriptor'] == 'GCN':
+                input_mol = None
+                if model_name == 'expansion':
+                    input_mol = MoleculeUtils.generate_gcn_descriptor(self.mol, config['max_atom_num'], len(rxn_rules))
+                elif model_name == 'rollout':
+                    input_mol = MoleculeUtils.generate_gcn_descriptor(self.mol, config['max_atom_num'], len(rxn_rules))
+                rxn_prob_list = predict_templates(model, input_mol, model_name, config)
+            else:
+                print("[ERROR] Set 'descriptor' to ECFP or GCN")
+                sys.exit(1)
+            sorted_rxn_prob_idxs = np.argsort(-rxn_prob_list)[:config["expansion_num"]]
+            sorted_rxn_prob_list = rxn_prob_list[sorted_rxn_prob_idxs][:config["expansion_num"]]
+            self.predict_reaction_cache[canonical_smiles] = (sorted_rxn_prob_list, sorted_rxn_prob_idxs)
+        self.sorted_rxn_prob_idxs = sorted_rxn_prob_idxs
+        self.sorted_rxn_prob_list = sorted_rxn_prob_list
         self.rxn_candidates = self.get_reaction_candidates(rxn_rules, config["expansion_num"])
 
     @staticmethod
@@ -254,7 +295,7 @@ class ReactionUtils:
         reverse_rxn_str = ['>>'.join(split_rxn_rule[::-1]) for split_rxn_rule in split_rxn_rules]
         return [AllChem.ReactionFromSmarts(r) for r in reverse_rxn_str]
 
-    def get_reaction_candidates(self, rxn_rules, expansion_num, top_number=None):
+    def get_reaction_candidates(self, rxn_rules, expansion_num, top_number=None, cum_prob_thresh=0):
         """
         Args:
             rxn_rules (list[Chemical Reaction]):
@@ -265,22 +306,21 @@ class ReactionUtils:
         """
         idxs = []
         probs = []
-        if top_number is None:  # for expansion
-            for i in range(len(self.sorted_rxn_prob_idxs)):
-                probs.append(self.sorted_rxn_prob_list[i])
-                idxs.append(self.sorted_rxn_prob_idxs[i])
-                if i+1 >= expansion_num:
-                    break
-            rxn_cands = [rxn_rules[i] for i in idxs]
+        cum_prob = 0
+        counter_limit = top_number if top_number is not None else expansion_num
+        probs = self.sorted_rxn_prob_list[:counter_limit]
+        idxs = self.sorted_rxn_prob_idxs[:counter_limit]
+        if cum_prob_thresh:
+            cum_probs = np.cumsum(probs)
+            pruned = max(1,len(cum_probs[cum_probs<cum_prob_thresh]))
+            probs = probs[:pruned]
+            idxs = idxs[:pruned]
+        rxn_cands = [rxn_rules[i] for i in idxs]
+        if top_number is None:
             self.sorted_rxn_prob_list = probs
-            return rxn_cands
-        else:  # for rollout
-            idxs = [self.sorted_rxn_prob_idxs[i] for i in range(top_number)]
-            rxn_cands = [rxn_rules[i] for i in idxs]
-            return rxn_cands
+        return rxn_cands
 
-    @staticmethod
-    def predict_reactions(rxn_rules, model, mol, model_name, config, top_number=None):
+    def predict_reactions(self, rxn_rules, model, mol, model_name, config, top_number=None):
         """
         Args:
             rxn_rules (list[Chemical Reaction]):
@@ -292,12 +332,27 @@ class ReactionUtils:
         Returns:
             Lists of predicted Chemical Reaction(s) and reaction probabilities
         """
-        rxn = ReactionUtils(mol)
-        rxn.set_reaction_candidates_and_probabilities(model, rxn_rules, model_name, config)
+        self.mol = mol
+        self.set_reaction_candidates_and_probabilities(model, rxn_rules, model_name, config)
+        cum_prob_thresh = config["cum_prob_thresh"] if config["cum_prob_mod"] else 0
         if top_number is None:
-            return rxn.get_reaction_candidates(rxn_rules, config["expansion_num"]), rxn.sorted_rxn_prob_list
+            return self.get_reaction_candidates(rxn_rules, config["expansion_num"], cum_prob_thresh=cum_prob_thresh), self.sorted_rxn_prob_list
         else:
-            return rxn.get_reaction_candidates(rxn_rules, config["expansion_num"], top_number), rxn.sorted_rxn_prob_list
+            return self.get_reaction_candidates(rxn_rules, config["expansion_num"], top_number, cum_prob_thresh), self.sorted_rxn_prob_list
+
+    def filter_in_scope_reactions(self, in_scope_model, product_mol, reactants_set_list):
+        if in_scope_model is None:
+            return reactants_set_list
+        product_input = torch.log(torch.FloatTensor(MoleculeUtils.generate_count_ecfp(product_mol, radius=2, bits=16384)) + 1)
+        product_fgp = MoleculeUtils.generate_count_ecfp(product_mol, radius=2, bits=2048)
+        reaction_input = []
+        for reactants in reactants_set_list:
+            reaction_input.append(torch.FloatTensor(MoleculeUtils.generate_reaction_count_ecfp(None, reactants, radius=2, bits=2048, pre_computed_product_fgp=product_fgp)))
+        product_input = product_input.repeat(len(reactants_set_list), 1)
+        reaction_input = torch.stack(reaction_input)
+        in_scope_probs = in_scope_model(reaction_input, product_input)
+        valid_reactants = [r for p, r in zip(in_scope_probs, reactants_set_list) if p > 0.5]
+        return valid_reactants
 
 
 class SearchUtils:
@@ -331,8 +386,11 @@ class SearchUtils:
         Returns:
 
         """
-        str_mols = [Chem.MolToSmiles(m) for m in mols]
-        return gateway.entry_point.isTerminal(str_mols)
+        if isinstance(gateway, CxnUtils):
+            return gateway.is_terminal(mols)
+        else:
+            mols = [Chem.MolToSmiles(mol) for mol in mols]
+            return gateway.entry_point.isTerminal(mols)
 
     @staticmethod
     def is_loop_route(mols, node):
@@ -397,6 +455,14 @@ def calculate_asscore(mol_condition_before, mol_condition_after, num_divided_mol
         return 0.
     return (mol_condition_after.count(1) - mol_condition_before.count(1)) / num_divided_mols
 
+def get_num_ring(mol):
+    try:
+        ring_num = mol.GetRingInfo().NumRings()
+    except Exception as e:
+        mol.UpdatePropertyCache()
+        Chem.GetSymmSSSR(mol)
+        ring_num = mol.GetRingInfo().NumRings()
+    return ring_num
 
 def calculate_rdscore(product, reactants):
     """
@@ -407,13 +473,8 @@ def calculate_rdscore(product, reactants):
         score (float)
         return 1 if a number of rings in a product is reduced otherwise 0.
     """
-    try:
-        pro_ring_num = product.GetRingInfo().NumRings()
-    except Exception as e:
-        product.UpdatePropertyCache()
-        Chem.GetSymmSSSR(product)
-        pro_ring_num = product.GetRingInfo().NumRings()
-    rct_ring_nums = sum([m.GetRingInfo().NumRings() for m in reactants])
+    pro_ring_num = get_num_ring(product)
+    rct_ring_nums = sum([get_num_ring(m) for m in reactants])
     rdscore = pro_ring_num - rct_ring_nums
     return 1. if rdscore > 0 else 0.
 
@@ -433,6 +494,10 @@ def calculate_stscore(reactants, reaction_template):
         match_patts.append(len(rct.GetSubstructMatches(patt, useChirality=True)))
     match_patts = [1 if patt == 0 else patt for patt in match_patts]
     return 1 / reduce(mul, match_patts)
+
+
+def calculate_intermediate_score(mols, intermediates):
+    return np.mean([Chem.MolToSmiles(m) in intermediates for m in mols])
 
 
 def is_port_in_used(port):
@@ -459,24 +524,57 @@ def get_default_config():
         "expansion_rules": "data/sample_reaction_rule.csv",
         "rollout_model": "model/model.sample.ckpt",
         "rollout_rules": "data/sample_reaction_rule.csv",
+        "in_scope_model": None,
         "descriptor": "GCN",
         "gcn_expansion_config": "model/sample.json",
         "gcn_rollout_config": "model/sample.json",
         "starting_material": "data/starting_materials.smi",
+        "intermediate_material": None,
+        "template_scores": None,
         "save_result_dir": "result",
         "target": "data/sample.mol"
     }
     return config
 
+def get_config(args):
+    # Setup config: Arguments take priority over config file
+    config = get_default_config()
+    if args.config is not None:
+        with open(args.config, 'r') as f:
+            config.update(json.load(f))
+    config['max_atom_num'] = int(args.max_atom_num or config['max_atom_num'])
+    config['search_count'] = int(args.search_count or config['search_count'])
+    config['rollout_depth'] = int(args.rollout_depth or config['rollout_depth'])
+    config['expansion_model'] = args.expansion_model or config['expansion_model']
+    config['in_scope_model'] = args.in_scope_model or config['in_scope_model']
+    config['expansion_rules'] = args.expansion_rules or config['expansion_rules']
+    config['rollout_model'] = args.rollout_model or config['rollout_model']
+    config['rollout_rules'] = args.rollout_rules or config['rollout_rules']
+    config['descriptor'] = args.descriptor or config['descriptor']
+    config['gcn_expansion_config'] = args.gcn_expansion_config or config['gcn_expansion_config']
+    config['gcn_rollout_config'] = args.gcn_rollout_config or config['gcn_rollout_config']
+    config['starting_material'] = args.starting_material or config['starting_material']
+    config['intermediate_material'] = args.intermediate_material or config['intermediate_material']
+    config['template_scores'] = args.template_scores or config["template_scores"]
+    config['save_result_dir'] = args.save_result_dir or config['save_result_dir']
+    config['target'] = args.target or config['target']
+    config['knowledge'] = set(args.knowledge)
+    config["knowledge_weights"] = args.knowledge_weights
+    config['save_tree'] = args.save_tree
+    config['selection_constant'] = args.sel_const
+    config['expansion_num'] = args.expansion_num
+    config['cum_prob_mod'] = args.cum_prob_mod
+    config['cum_prob_thresh'] = args.cum_prob_thresh
+    return config
 
 def get_node_info(node, ws):
     """
     Args:
         node (Node):
-        ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore]
+        ws (list(int)): knowledge weights. [cdscore, rdscore, asscore, stscore, intermediate_score, template_score]
     Returns:
         return  node information for a searched tree analysis
-        node information: self node, parent node, depth, score, RDScore, CDScore, STScore, ASScore
+        node information: self node, parent node, depth, score, RDScore, CDScore, STScore, ASScore, IntermediateScore, TemplateScore
     """
     return (f"{id(node)}\t"
             f"{id(node.parent_node)}\t"
@@ -485,4 +583,6 @@ def get_node_info(node, ws):
             f"{node.state.rdscore}\t"
             f"{node.state.cdscore * ws[0]}\t"
             f"{node.state.stscore * ws[3]}\t"
-            f"{node.state.asscore * ws[2]}")
+            f"{node.state.asscore * ws[2]}\t"
+            f"{node.state.intermediate_score * ws[4]}\t"
+            f"{node.state.template_score * ws[5]}\t")

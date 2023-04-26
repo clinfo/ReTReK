@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings('ignore',category=FutureWarning)
 import argparse
 import datetime
 import json
@@ -8,14 +10,17 @@ import random
 import subprocess
 import sys
 import time
+import numpy as np
 
+from reimplemented_libraries import CxnUtils
 from py4j.java_gateway import JavaGateway, GatewayParameters
 from rdkit import Chem, RDLogger
 
 from mcts_main import Mcts
 from mcts_modules import print_route, save_route
-from model_modules import load_model
-from utils import is_port_in_used, ReactionUtils, get_default_config
+from model_modules import load_model, predict_templates
+from utils import *
+from preprocessing_modules import atom_features, build_data
 
 
 def get_parser():
@@ -33,8 +38,8 @@ def get_parser():
         help="Max number of atoms in a molecule"
     )
     parser.add_argument(
-        "-c", "--search_count", required=False, type=int, default=100,
-        help="the maximum number of iterations of MCTS"
+        "-c", "--search_count", required=False, type=int,
+        help="MCTS max search count"
     )
     parser.add_argument(
         "--config", type=str,
@@ -69,8 +74,16 @@ def get_parser():
         help='Path to GCN rollout config file'
     )
     parser.add_argument(
+        "--template_scores", required=False, type=str,
+        help="Path to template scores file"
+    )
+    parser.add_argument(
         "-m", "--starting_material", required=False, type=str,
         help="Path to starting materials file"
+    )
+    parser.add_argument(
+        "-i", "--intermediate_material", required=False, type=str,
+        help="Path to intermediate materials file"
     )
     parser.add_argument(
         "-p", "--rollout_model", required=False, type=str,
@@ -79,6 +92,10 @@ def get_parser():
     parser.add_argument(
         "-pr", "--rollout_rules", required=False, type=str,
         help="Path to reaction rules for playout"
+    )
+    parser.add_argument(
+        "-is", "--in_scope_model", required=False, type=str,
+        help="Path to In scope model weights"
     )
     parser.add_argument(
         "-r", "--save_result_dir", type=str, default="result",
@@ -90,12 +107,12 @@ def get_parser():
     )
     parser.add_argument(
         "-k", "--knowledge", required=False, nargs="+", default=[], type=str,
-        choices=["cdscore", "rdscore", "asscore", "stscore", "all"],
+        choices=["cdscore", "rdscore", "asscore", "stscore", "intermediate_score", "template_score", "all"],
         help="choice chemical knowledges"
     )
     parser.add_argument(
-        "--knowledge_weights", required=False, nargs=4, default=[1., 1., 1., 1.], type=float,
-        help="knowledge score's weights in selection. [cdscore, rdscore, asscore, stscore]"
+        "--knowledge_weights", required=False, nargs=6, default=[1., 1., 1., 1., 1., 1.], type=float,
+        help="knowledge score's weights in selection. [cdscore, rdscore, asscore, stscore, intermediate_score, template_score]"
     )
     parser.add_argument(
         "--save_tree", required=False, action='store_true', default=False,
@@ -108,6 +125,26 @@ def get_parser():
     parser.add_argument(
         "--expansion_num", required=False, type=int, default=50,
         help="the number of expanded nodes during the expansion step"
+    )
+    parser.add_argument(
+        "--time_limit", type=int, default=0,
+        help="Time limit for search over one molecule"
+    )
+    parser.add_argument(
+        "--cum_prob_mod", action="store_true", default=False,
+        help="uses cumulative probabilities to prune reaction candidates"
+    )
+    parser.add_argument(
+        "--cum_prob_thresh", required=False, type=float, default=0.955,
+        help="threshold used for cumulative probabilities mod"
+    )
+    parser.add_argument(
+        "--chem_axon", action="store_true",
+        help="Uses chem axon dependencies"
+    )
+    parser.add_argument(
+        "--random_seed", required=False, type=int, default=0,
+        help="Fix random seed (has to be different than 0 to be activated)"
     )
     return parser.parse_args()
 
@@ -135,31 +172,9 @@ def get_logger(level, save_dir):
 def main():
     args = get_parser()
     os.environ['CUDA_VISIBLE_DEVICES'] = ""
-
-    # Setup config: Arguments take priority over config file
-    config = get_default_config()
-    if args.config is not None:
-        with open(args.config, 'r') as f:
-            config.update(json.load(f))
-    config['max_atom_num'] = int(args.max_atom_num or config['max_atom_num'])
-    config['search_count'] = int(args.search_count or config['search_count'])
-    config['rollout_depth'] = int(args.rollout_depth or config['rollout_depth'])
-    config['expansion_model'] = args.expansion_model or config['expansion_model']
-    config['expansion_rules'] = args.expansion_rules or config['expansion_rules']
-    config['rollout_model'] = args.rollout_model or config['rollout_model']
-    config['rollout_rules'] = args.rollout_rules or config['rollout_rules']
-    config['descriptor'] = args.descriptor or config['descriptor']
-    config['gcn_expansion_config'] = args.gcn_expansion_config or config['gcn_expansion_config']
-    config['gcn_rollout_config'] = args.gcn_rollout_config or config['gcn_rollout_config']
-    config['starting_material'] = args.starting_material or config['starting_material']
-    config['save_result_dir'] = args.save_result_dir or config['save_result_dir']
-    config['target'] = args.target or config['target']
-    config['knowledge'] = set(args.knowledge)
-    config["knowledge_weights"] = args.knowledge_weights
-    config['save_tree'] = args.save_tree
-    config['selection_constant'] = args.sel_const
-    config['expansion_num'] = args.expansion_num
-
+    config = get_config(args)
+    if args.random_seed:
+        random.seed(args.random_seed)
     # Create save directory
     now = datetime.datetime.now()
     name_stem = config["target"].split('/')[-1].split('.')[0]
@@ -176,22 +191,25 @@ def main():
     if not args.debug:
         RDLogger.DisableLog("rdApp.*")
 
-    # Setup JVM
-    gateway_port = 25333 + random.randint(1, 3000)
-    while is_port_in_used(gateway_port):
-        gateway_port += 1
-    proxy_port = gateway_port + 1
-    while is_port_in_used(proxy_port):
-        proxy_port += 1
-    logger.info(f"gateway port: {gateway_port} proxy port: {proxy_port}\n")
+    if args.chem_axon:
+        # Setup JVM
+        gateway_port = 25333 + np.random.randint(1, 3000)
+        while is_port_in_used(gateway_port):
+            gateway_port += 1
+        proxy_port = gateway_port + 1
+        while is_port_in_used(proxy_port):
+            proxy_port += 1
+        logger.info(f"gateway port: {gateway_port} proxy port: {proxy_port}\n")
 
-    cmd = f"java CxnUtils {gateway_port} {config['rollout_rules']}"
-    subprocess.Popen(cmd.split(" "))
-    time.sleep(3)
-    gateway = JavaGateway(start_callback_server=True,
-                          python_proxy_port=proxy_port,
-                          gateway_parameters=GatewayParameters(port=gateway_port, auto_convert=True))
-    logger.info("Start up java gateway")
+        cmd = f"java CxnUtils {gateway_port} {config['rollout_rules']}"
+        subprocess.Popen(cmd.split(" "))
+        time.sleep(3)
+        gateway = JavaGateway(start_callback_server=True,
+                              python_proxy_port=proxy_port,
+                              gateway_parameters=GatewayParameters(port=gateway_port, auto_convert=True))
+        logger.info("Start up java gateway")
+    else:
+        gateway = CxnUtils(config['rollout_rules'])
 
     try:
         # data preparation
@@ -203,6 +221,13 @@ def main():
         rollout_rules = ReactionUtils.get_reactions(config['rollout_rules'], config['save_result_dir'])
         with open(config['starting_material'], 'r') as f:
             start_materials = set([s.strip() for s in f.readlines()])
+            if all([len(x) == 27 for x in start_materials]):
+                start_materials.add("inchi") # Sets start materials format to inchi
+        if config['intermediate_material'] is not None:
+            with open(config['intermediate_material'], 'r') as f:
+                intermediate_materials = set([s.strip() for s in f.readlines()])
+        else:
+            intermediate_materials = set()
         if config['descriptor'] == 'ECFP':
             expansion_model = load_model('expansion', config, class_num=len(expansion_rules))
             rollout_model = load_model('rollout', config, class_num=len(rollout_rules))
@@ -212,13 +237,18 @@ def main():
         else:
             logger.error("set 'descriptor' to GCN or ECFP")
             sys.exit(1)
+        if config["template_scores"]:
+            template_scores = json.load(open(config["template_scores"], "r"))
+        else:
+            template_scores = {}
+        in_scope_model = load_model('in_scope', config)
         # main process
-        mcts = Mcts(target_mol, expansion_rules, rollout_rules, start_materials, config)
+        mcts = Mcts(target_mol, expansion_rules, rollout_rules, start_materials, intermediate_materials, template_scores, config)
 
         logger.info(f"[INFO] knowledge type: {config['knowledge']}")
         logger.info("[INFO] start search")
         start = time.time()
-        leaf_node, is_proven = mcts.search(expansion_model, rollout_model, logger, gateway=gateway)
+        leaf_node, is_proven = mcts.search(expansion_model, rollout_model, in_scope_model, logger, gateway=gateway, time_limit=args.time_limit)
         elapsed_time = time.time() - start
         logger.info(f"[INFO] done in {elapsed_time:5f} s")
 
@@ -238,8 +268,9 @@ def main():
         print_route(nodes, is_proven, logger)
         save_route(nodes, config['save_result_dir'], is_proven, config["knowledge_weights"])
     finally:
-        gateway.shutdown()
-        logger.info("Shutdown java gateway")
+        if args.chem_axon:
+            gateway.shutdown()
+            logger.info("Shutdown java gateway")
 
 
 if __name__ == "__main__":

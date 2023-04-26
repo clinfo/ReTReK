@@ -1,0 +1,32 @@
+{
+    "model": "GIN",
+    "model.py": "model:GNN",
+    "normalize_adj_flag": true,
+    "num_gcn_layers": 5,
+    "hidden_dim": 128,
+    "pred_dim": 64,
+    "concat": false,
+    "max_pool": false,
+    "readout": "sum",
+    "residual": false,
+    "batchnorm": true,
+    "batch_size": 128,
+    "learning_rate": 1.2e-3,
+    "dropout":0.2,
+    "save_path": "/home/User/Projects/result",
+    "checkpoint_path": "/home/User/Projects/result/GIN_2_25k/model.best.ckpt",
+    "save_interval":1000,
+    "epoch": 150,
+    "lr_schedule": "cosine",
+    "step_div": 10,
+    "div_factor": 10,
+    "regression_weight": 1,
+    "category_weight": 0.5,
+    "patience": 50,
+    "tune_params": [
+        ["float", "regression_weight", 0.001, 10, true],
+        ["float", "category_weight", 0.001, 10, true]
+    ],
+    "hyper_param_opt": false,
+    "n_trials": 50
+}

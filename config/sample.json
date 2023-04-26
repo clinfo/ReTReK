@@ -9,7 +9,7 @@
   "descriptor": "GCN",
   "gcn_expansion_config": "model/sample.json",
   "gcn_rollout_config": "model/sample.json",
-  "starting_material": "data/starting_materials.smi",
+  "starting_material": "data/starting_materials_rdkit.smi",
   "save_result_dir": "result",
   "target": "data/sample.mol"
 }

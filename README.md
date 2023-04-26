@@ -36,10 +36,10 @@ Note: The order of the knowledge arguments corresponds to that of the knowledge_
 javac CxnUtils.java  # for the first time only
 
 # use all knowledge
-python run.py --config config/sample.json --target data/sample.mol --knowledge cdscore rdscore asscore stscore --knowledge_weights 1.0 1.0 1.0 1.0
+python run.py --config config/sample.json --target data/sample.mol --knowledge cdscore rdscore asscore stscore --knowledge_weights 1.0 1.0 1.0 1.0 1.0 1.0
 
 # use CDScore with a weight of 2.0
-python run.py --config config/sample.json --target data/sample.mol --knowledge cdscore --knowledge_weights 2.0 0.0 0.0 0.0
+python run.py --config config/sample.json --target data/sample.mol --knowledge cdscore --knowledge_weights 2.0 0.0 0.0 0.0 0.0 0.0
 ```
 If you want to try your own molecule, prepare the molecule as MDL MOLfile format and replace `data/sample.mol` with the prepared file. 
 
@@ -49,9 +49,9 @@ If you want to try the molecules in the directory, run the command as follows:
 NOTE: You need to download additional files using [git-lfs](https://git-lfs.github.com/) to run the below command. 
 At first, run `git lfs install && git lfs pull` to download `data/starting_materials_zinc.smi`.
 ```bash
-python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/MtbTMPK_inhibitor.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
+python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/MtbTMPK_inhibitor.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
 
-python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/α7_nicotinic_acetylcholine_receptor_silent_agonist.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
+python run.py --config config/sample2.json --target data/evaluation_compounds/drug-like-compounds/α7_nicotinic_acetylcholine_receptor_silent_agonist.mol --knowledge cdscore --knowledge_weights 5.0 0.0 0.0 0.0 0.0 0.0 --sel_const 10 --expansion_num 500
 ```
 
 ## Optional arguments
@@ -73,6 +73,13 @@ A ring construction strategy is preferred if a target compounds has complex ring
 
 ### Selective Transformation Score (STScore)
 A synthetic reaction with few by-products is generally preferred in terms of yield.
+
+### Intermediate Score (IntermediateScore)
+IntermediateScore favors states that include molecules from a user defined list of intermediate compounds.
+
+### Template Score (TemplateScore)
+TemplateScore allows to prioritize some reaction templates, it should be given as a JSON list in the format
+`template: template_score (between 0 and 1)`. Templates not included will have a default score of 0.
 
 ## Contact
 
