@@ -3,6 +3,9 @@ This package provides a data-driven computer-aided synthesis planning tool using
 In this package, the model of ReTReK was trained with US Patent dataset instead of Reaxys reaction dataset. 
 Hence, please note that we cannot guarantee that the model gives the same synthetic routes in the manuscript. 
 
+> **Note**
+> The pure Python version of ReTReK is available at https://github.com/clinfo/ReTReKpy
+
 <div align="center">
   <img src="./images/ReTReK_summary.jpg">
 </div>
@@ -76,19 +79,23 @@ A synthetic reaction with few by-products is generally preferred in terms of yie
 
 ## Contact
 
-- Shoichi Ishida: ishida.shouichi.57a@st.kyoto-u.ac.jp 
+- Shoichi Ishida: ishida.sho.nm@yokohama-cu.ac.jp  
 - Ryosuke Kojima: kojima.ryosuke.8e@kyoto-u.ac.jp 
 
 ## Reference
 ```
-@article{Ishida2020,
-  doi = {10.26434/chemrxiv.13386092.v1},
-  url = {https://doi.org/10.26434/chemrxiv.13386092.v1},
-  year = {2020},
-  month = dec,
-  journal = {ChemRxiv},
+@article{Ishida2022,
+  doi = {10.1021/acs.jcim.1c01074},
+  url = {https://doi.org/10.1021/acs.jcim.1c01074},
+  year = {2022},
+  month = mar,
+  publisher = {American Chemical Society ({ACS})},
+  volume = {62},
+  number = {6},
+  pages = {1357--1367},
   author = {Shoichi Ishida and Kei Terayama and Ryosuke Kojima and Kiyosei Takasu and Yasushi Okuno},
-  title = {{AI}-Driven Synthetic Route Design with Retrosynthesis Knowledge}
+  title = {{AI}-Driven Synthetic Route Design Incorporated with Retrosynthesis Knowledge},
+  journal = {Journal of Chemical Information and Modeling}
 }
 ```
 This application is developed as part of a [kGCN](https://github.com/clinfo/kGCN) project. 
